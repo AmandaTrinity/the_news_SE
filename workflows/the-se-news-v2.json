@@ -1,0 +1,302 @@
+{
+  "name": "the SE news (SEAL) v2",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## ☕ the SE news — como configurar\n\n1. **Fontes (edite aqui)**: ajuste buscas e cole seus Google Alertas.\n2. **Modelo de IA**: crie a credencial (chave grátis no Google AI Studio) e escolha o modelo no dropdown. Pode trocar por Claude/OpenAI.\n3. **Enviar e-mail**: credencial SMTP (smtp.gmail.com, porta 465, SSL, senha de app) e troque remetente/destinatário.\n4. Teste com **Execute workflow** e depois **ative** o workflow.\n\nRoda todo domingo às 8h (fuso America/Recife, nas configurações do workflow).",
+        "height": 300,
+        "width": 420,
+        "color": 4
+      },
+      "id": "n-nota",
+      "name": "Leia-me",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -380,
+        -360
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "n-trigger",
+      "name": "Todo domingo 8h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -360,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 👉 EDITE ESTA LISTA — cada fonte é um feed RSS.\n// Google News: troque/adicione buscas na função gnews(). \"when:7d\" = últimos 7 dias.\n// Google Alertas: google.com/alerts → crie o alerta → \"Mostrar opções\" →\n//   \"Enviar para: Feed RSS\" → copie o link do ícone RSS e cole abaixo.\n\nconst gnews = (q) =>\n  `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=pt-BR&gl=BR&ceid=BR:pt-419`;\n\nconst fontes = [\n  // ── Eventos (Recife primeiro) ──\n  { nome: 'GNews: eventos tech Recife',      url: gnews('evento tecnologia (Recife OR Pernambuco) when:7d') },\n  { nome: 'GNews: Porto Digital',            url: gnews('\"Porto Digital\" evento when:7d') },\n  { nome: 'GNews: eventos de ES',            url: gnews('\"engenharia de software\" (evento OR congresso OR meetup) when:7d') },\n\n  // ── Hackathons & competições ──\n  { nome: 'GNews: hackathon PE',             url: gnews('hackathon (Recife OR Pernambuco OR Nordeste) when:7d') },\n  { nome: 'GNews: hackathon inscrições',     url: gnews('hackathon inscrições abertas when:7d') },\n  { nome: 'GNews: maratona de programação',  url: gnews('\"maratona de programação\" when:7d') },\n\n  // ── Temas polêmicos / debates ──\n  { nome: 'GNews: IA e programadores',       url: gnews('(\"vibe coding\" OR \"IA\" programadores OR desenvolvedores) polêmica when:7d') },\n  { nome: 'Hacker News: software engineering', url: 'https://hnrss.org/newest?q=%22software+engineering%22&points=100' },\n  { nome: 'Hacker News: AI coding',          url: 'https://hnrss.org/newest?q=AI+coding&points=150' },\n  { nome: 'Lobsters: practices',             url: 'https://lobste.rs/t/practices.rss' },\n  { nome: 'The Pragmatic Engineer',          url: 'https://newsletter.pragmaticengineer.com/feed' },\n  { nome: 'Reddit: r/ExperiencedDevs',       url: 'https://www.reddit.com/r/ExperiencedDevs/top/.rss?t=week' },\n\n  // ── Seus Google Alertas (descomente e cole os links) ──\n  // { nome: 'Alerta: hackathon Recife', url: 'https://www.google.com/alerts/feeds/XXXX/YYYY' },\n  // { nome: 'Alerta: CIn UFPE evento',  url: 'https://www.google.com/alerts/feeds/XXXX/ZZZZ' },\n];\n\nreturn fontes.map(f => ({ json: f }));\n"
+      },
+      "id": "n-fontes",
+      "name": "Fontes (edite aqui)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -140,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "n-loop",
+      "name": "Uma fonte por vez",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        80,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}"
+      },
+      "id": "n-rss",
+      "name": "Ler feed RSS",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        300,
+        120
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a-fonte",
+              "name": "fonte",
+              "value": "={{ $('Uma fonte por vez').first().json.nome }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "n-marcar",
+      "name": "Marcar fonte",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        520,
+        120
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Junta tudo, remove duplicados e o que já foi enviado, filtra últimos 7 dias\n// e monta UM texto com todos os itens para a IA.\n\nconst DIAS = 7;            // janela de tempo\nconst MAX_POR_FONTE = 12;  // evita que uma fonte domine a edição\nconst MAX_TOTAL = 70;      // limite de itens enviados para a IA\n\nconst agora = Date.now();\nconst limite = agora - DIAS * 864e5;\n\n// Memória de links já enviados (só persiste em execuções do workflow ATIVO,\n// não em testes manuais). Itens somem da memória após 60 dias.\nconst memoria = $getWorkflowStaticData('global');\nmemoria.enviados = memoria.enviados || {};\nfor (const [k, t] of Object.entries(memoria.enviados)) {\n  if (agora - t > 60 * 864e5) delete memoria.enviados[k];\n}\n\n// Google Alertas embrulham o link real em google.com/url?url=...\nfunction limparLink(link) {\n  try {\n    const u = new URL(link);\n    if (u.hostname.includes('google.') && u.pathname === '/url') {\n      return u.searchParams.get('url') || link;\n    }\n  } catch (e) {}\n  return link;\n}\n\nfunction limparTexto(s) {\n  return String(s || '')\n    .replace(/<[^>]*>/g, ' ')\n    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')\n    .replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\")\n    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nconst chaveDe = (link) => link.split('#')[0].replace(/\\/$/, '').toLowerCase();\n\nconst vistos = new Set();\nconst porFonte = {};\nconst fontesComErro = new Set();\nconst itens = [];\n\nfor (const { json } of $input.all()) {\n  const fonte = json.fonte || 'desconhecida';\n  if (json.error) { fontesComErro.add(fonte); continue; }\n  if (!json.link || !json.title) continue;\n\n  const link = limparLink(json.link);\n  const chave = chaveDe(link);\n  if (vistos.has(chave) || memoria.enviados[chave]) continue;\n\n  const data = new Date(json.isoDate || json.pubDate || 0).getTime();\n  if (!data || data < limite) continue;\n\n  porFonte[fonte] = (porFonte[fonte] || 0) + 1;\n  if (porFonte[fonte] > MAX_POR_FONTE) continue;\n\n  vistos.add(chave);\n  itens.push({\n    chave,\n    fonte,\n    titulo: limparTexto(json.title),\n    link,\n    data: new Date(data).toISOString().slice(0, 10),\n    resumo: limparTexto(json.contentSnippet || json.content || json.summary).slice(0, 400),\n  });\n}\n\nitens.sort((a, b) => b.data.localeCompare(a.data));\nconst selecionados = itens.slice(0, MAX_TOTAL);\nfor (const i of selecionados) memoria.enviados[i.chave] = agora;\n\nconst lista = selecionados.map((i, n) =>\n  `[${n + 1}] ${i.titulo}\\nFonte: ${i.fonte} | Data: ${i.data}\\nResumo: ${i.resumo || '(sem resumo)'}\\nLink: ${i.link}`\n).join('\\n\\n');\n\nconst hoje = new Date().toLocaleDateString('pt-BR', {\n  weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',\n  timeZone: 'America/Recife',\n});\n\nreturn [{\n  json: {\n    hoje,\n    quantidade: selecionados.length,\n    lista: lista || '(nenhum item novo nesta semana)',\n    fontesComErro: [...fontesComErro],\n  },\n}];\n"
+      },
+      "id": "n-filtro",
+      "name": "Filtrar e preparar itens",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Hoje é {{ $json.hoje }}.\n\nItens coletados nesta semana ({{ $json.quantidade }}):\n\n{{ $json.lista }}",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "Você é editora da \"the SE news\", newsletter semanal da SEAL – Liga Acadêmica de Engenharia de Software do CIn-UFPE (Recife). O público são estudantes de Computação. O estilo é inspirado no the news: tom leve, esperto e bem-humorado, frases curtas, emojis com moderação, sem perder a precisão.\n\nVocê recebe uma lista numerada de itens coletados de feeds (título, fonte, data, resumo, link). Monte a edição da semana.\n\nFOCO (em ordem de prioridade):\n1. Eventos de tecnologia e Engenharia de Software: priorize Recife/Pernambuco, depois Nordeste, online e o resto do Brasil.\n2. Hackathons, maratonas e competições com inscrição aberta ou acontecendo em breve.\n3. Temas polêmicos e debates da área (ex.: IA substituindo devs, vibe coding, qualidade de código gerado por IA, práticas e metodologias em xeque, decisões controversas de big techs).\n\nFORA DO FOCO, descarte: vagas de emprego e estágio, cursos pagos, propaganda, notícias sem relação com tecnologia, itens duplicados ou eventos já encerrados.\n\nESTRUTURA (pule seções sem itens bons; nunca invente conteúdo para preencher):\n- Abertura: 2 a 3 frases de boas-vindas + \"Hoje no menu:\" resumindo a edição em uma linha.\n- 🔥 Destaque da semana: o item mais relevante, com 3 a 5 frases e um \"👀 Por que importa:\".\n- 🗓️ Eventos\n- 🏆 Hackathons & competições\n- 🌶️ Treta da semana: 1 ou 2 debates. Explique o contexto e apresente os principais lados de forma equilibrada, sem tomar partido. Feche com \"💬 Pra discutir na liga:\" e uma pergunta provocativa.\n- 📚 Vale a leitura (opcional, no máximo 2 itens)\n- 📌 Agenda rápida: lista curta só com datas e prazos que aparecem nos itens.\n- Despedida curta.\n\nREGRAS DE PRECISÃO (as mais importantes):\n- Use APENAS informações presentes nos itens. Nunca invente datas, locais, preços, prazos ou detalhes.\n- Se a data ou o local de um evento não estiver no item, não escreva; no máximo diga \"detalhes no link\".\n- Todo item citado precisa ter seu link.\n- Escreva com suas palavras; não copie trechos longos dos resumos.\n- No máximo cerca de 10 itens no total. Qualidade é mais importante que quantidade.\n- Se houver poucos itens relevantes, faça uma edição curta e diga isso com bom humor.\n\nFORMATO DE SAÍDA:\n- Responda SOMENTE com HTML de e-mail, começando em <div> e terminando em </div>. Sem markdown, sem blocos de código, sem texto antes ou depois.\n- Use apenas CSS inline (clientes de e-mail ignoram <style>). Container com max-width:600px; margin:0 auto; font-family:Arial,Helvetica,sans-serif; color:#1a1a1a; line-height:1.6.\n- Títulos de seção em <h2> com font-size:18px; títulos de item em <h3> com font-size:16px; links com color:#2b59c3.\n- Separe seções com <hr style=\"border:none;border-top:1px solid #e5e5e5;margin:24px 0\">.\n- Cabeçalho: \"☕ the SE news\" em destaque, a data de hoje por extenso e \"leitura de X minutos\"."
+            }
+          ]
+        }
+      },
+      "id": "n-llm",
+      "name": "Escrever newsletter",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        520,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.8-flash",
+        "options": {
+          "temperature": 0.7
+        }
+      },
+      "id": "n-modelo",
+      "name": "Modelo de IA",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        520,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Limpa a resposta da IA e monta assunto + corpo do e-mail.\nlet html = String($input.first().json.text || '')\n  .replace(/^\\s*```(?:html)?\\s*/i, '')\n  .replace(/```\\s*$/, '')\n  .trim();\n\nconst info = $('Filtrar e preparar itens').first().json;\nif (info.fontesComErro && info.fontesComErro.length) {\n  html += `<p style=\"max-width:600px;margin:24px auto 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#888\">` +\n          `⚠️ Fontes que falharam nesta semana: ${info.fontesComErro.join(', ')}</p>`;\n}\n\nconst data = new Date().toLocaleDateString('pt-BR', {\n  day: '2-digit', month: '2-digit', timeZone: 'America/Recife',\n});\n\nreturn [{ json: { assunto: `☕ the SE news — ${data}`, html } }];\n"
+      },
+      "id": "n-email-prep",
+      "name": "Montar e-mail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        820,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "the SE news <seu-email@gmail.com>",
+        "toEmail": "seu-email@gmail.com",
+        "subject": "={{ $json.assunto }}",
+        "emailFormat": "html",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "n-smtp",
+      "name": "Enviar e-mail",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1040,
+        -140
+      ]
+    }
+  ],
+  "connections": {
+    "Todo domingo 8h": {
+      "main": [
+        [
+          {
+            "node": "Fontes (edite aqui)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fontes (edite aqui)": {
+      "main": [
+        [
+          {
+            "node": "Uma fonte por vez",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Uma fonte por vez": {
+      "main": [
+        [
+          {
+            "node": "Filtrar e preparar itens",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ler feed RSS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler feed RSS": {
+      "main": [
+        [
+          {
+            "node": "Marcar fonte",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar fonte": {
+      "main": [
+        [
+          {
+            "node": "Uma fonte por vez",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar e preparar itens": {
+      "main": [
+        [
+          {
+            "node": "Escrever newsletter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Modelo de IA": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Escrever newsletter",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escrever newsletter": {
+      "main": [
+        [
+          {
+            "node": "Montar e-mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar e-mail": {
+      "main": [
+        [
+          {
+            "node": "Enviar e-mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Recife"
+  },
+  "pinData": {}
+}

@@ -1,0 +1,3 @@
+# backups exportados do n8n (contêm e-mails reais)
+workflows/backup*.json
+.env
